@@ -1,0 +1,5 @@
+GROQ_API_KEY=your_groq_api_key_here
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
+TELEGRAM_CHAT_ID=your_default_chat_id_here
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+TELEGRAM_WEBHOOK_SECRET=optional_secret

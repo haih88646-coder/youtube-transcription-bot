@@ -1,2 +1,5 @@
-# youtube-transcription-bot
-YouTube transcription app using Groq Whisper API with Telegram bot integration, deployed on Vercel
+{
+  "framework": "nextjs",
+  "installCommand": "npm install",
+  "buildCommand": "npm run build"
+}

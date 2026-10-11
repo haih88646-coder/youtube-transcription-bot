@@ -1,0 +1,25 @@
+{
+  "name": "youtube-transcription-bot",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "groq-sdk": "^0.10.0",
+    "next": "14.2.15",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "youtube-dl-exec": "^3.0.1"
+  },
+  "devDependencies": {
+    "eslint": "8.57.0",
+    "eslint-config-next": "14.2.15"
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  }
+}
