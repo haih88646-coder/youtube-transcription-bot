@@ -1,73 +1,61 @@
-import { promises as fs } from 'node:fs';
-import { randomUUID } from 'node:crypto';
-import path from 'node:path';
-import os from 'node:os';
-
 import { downloadYouTubeAudio, transcribeAudioFile, generateTranscriptFile } from '@/lib/transcription';
 import { sendTelegramDocument } from '@/lib/telegram';
 
+function isYouTubeUrl(value) {
+  return /(?:youtu\.be|youtube\.com)/i.test(value || '');
+}
+
 export async function POST(request) {
   try {
-    const formData = await request.formData();
-    const youtubeUrl = (formData.get('youtubeUrl') || '').toString().trim();
-    const outputFormat = (formData.get('format') || 'txt').toString().toLowerCase();
-    const chatId = (formData.get('chatId') || process.env.TELEGRAM_CHAT_ID || '').toString().trim();
-    const uploadedFile = formData.get('file');
+    const update = await request.json();
+    const message = update?.message;
+    const text = message?.text || '';
+    const chatId = message?.chat?.id;
 
-    if (!youtubeUrl && !uploadedFile) {
-      return Response.json({ error: 'Please provide a YouTube URL or upload an MP3/MP4 file.' }, { status: 400 });
+    if (!message || !chatId) {
+      return Response.json({ ok: true });
     }
 
-    let tempFilePath = null;
-    let finalFileName = `transcript.${outputFormat}`;
-
-    try {
-      if (youtubeUrl) {
-        tempFilePath = await downloadYouTubeAudio(youtubeUrl);
-      } else {
-        const fileBuffer = Buffer.from(await uploadedFile.arrayBuffer());
-        const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'transcript-'));
-        const safeName = uploadedFile.name || `upload-${randomUUID()}`;
-        tempFilePath = path.join(folder, safeName);
-        await fs.writeFile(tempFilePath, fileBuffer);
-      }
-
-      const { text, segments } = await transcribeAudioFile(tempFilePath);
-      const transcriptBuffer = generateTranscriptFile({ text, segments, format: outputFormat });
-      finalFileName = `transcript-${Date.now()}.${outputFormat}`;
-
-      let sentToTelegram = false;
-      if (chatId) {
-        const result = await sendTelegramDocument({
-          chatId,
-          filename: finalFileName,
-          content: transcriptBuffer,
-          contentType: outputFormat === 'srt' ? 'text/plain' : 'text/plain',
-          caption: `Transcription ${outputFormat.toUpperCase()} file`
-        });
-        sentToTelegram = result.ok !== false;
-      }
-
-      return Response.json({
-        success: true,
-        text,
-        filename: finalFileName,
-        format: outputFormat,
-        sentToTelegram,
-        chatId,
-        message: sentToTelegram ? 'Transcription created and sent to Telegram.' : 'Transcription created successfully.'
+    if (text.startsWith('/start')) {
+      await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: 'Send me a YouTube URL or upload an MP3/MP4 file, and I will transcribe it to TXT or SRT and send the file back.'
+        })
       });
-    } finally {
-      if (tempFilePath) {
-        try {
-          await fs.unlink(tempFilePath);
-        } catch (error) {
-          // no-op
-        }
-      }
+      return Response.json({ ok: true });
     }
+
+    if (isYouTubeUrl(text)) {
+      const filePath = await downloadYouTubeAudio(text);
+      const { text: transcriptText, segments } = await transcribeAudioFile(filePath);
+      const srt = generateTranscriptFile({ text: transcriptText, segments, format: 'srt' });
+
+      await sendTelegramDocument({
+        chatId,
+        filename: 'transcript.srt',
+        content: srt,
+        contentType: 'text/plain',
+        caption: 'Your transcript in SRT format.'
+      });
+
+      return Response.json({ ok: true });
+    }
+
+    await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: 'Please send a valid YouTube URL or upload an audio/video file.'
+      })
+    });
+
+    return Response.json({ ok: true });
   } catch (error) {
-    console.error('transcribe route error:', error);
-    return Response.json({ error: error.message || 'Failed to transcribe file.' }, { status: 500 });
+    console.error('telegram webhook error:', error);
+    return Response.json({ ok: false, error: error.message }, { status: 500 });
   }
 }
