@@ -1,6 +1,6 @@
-node_modules
-.next
-.env
-.env.local
-npm-debug.log*
-.DS_Store
+{
+  "version": 2,
+  "framework": "nextjs",
+  "installCommand": "npm install",
+  "buildCommand": "npm run build"
+}
