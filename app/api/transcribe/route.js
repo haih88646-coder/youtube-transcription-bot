@@ -15,34 +15,49 @@ export async function POST(request) {
     const uploadedFile = formData.get('file');
 
     if (!youtubeUrl && !uploadedFile) {
-      return Response.json({ error: 'Please provide a YouTube URL or upload an MP3/MP4 file.' }, { status: 400 });
+      return Response.json(
+        { error: 'Please provide a YouTube URL or upload an MP3/MP4 file.' },
+        { status: 400 }
+      );
     }
 
     let tempFilePath = null;
+    let tempDirPath = null;
     let finalFileName = `transcript.${outputFormat}`;
 
     try {
       if (youtubeUrl) {
+        console.log('Downloading YouTube audio from:', youtubeUrl);
         tempFilePath = await downloadYouTubeAudio(youtubeUrl);
-      } else {
+        tempDirPath = path.dirname(tempFilePath);
+      } else if (uploadedFile) {
+        console.log('Processing uploaded file:', uploadedFile.name);
         const fileBuffer = Buffer.from(await uploadedFile.arrayBuffer());
-        const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'transcript-'));
+        tempDirPath = await fs.mkdtemp(path.join(os.tmpdir(), 'transcript-'));
         const safeName = uploadedFile.name || `upload-${randomUUID()}`;
-        tempFilePath = path.join(folder, safeName);
+        tempFilePath = path.join(tempDirPath, safeName);
         await fs.writeFile(tempFilePath, fileBuffer);
       }
 
+      if (!tempFilePath) {
+        throw new Error('No audio file to transcribe.');
+      }
+
+      console.log('Starting transcription for:', tempFilePath);
       const { text, segments } = await transcribeAudioFile(tempFilePath);
+      console.log('Transcription completed, text length:', text.length);
+
       const transcriptBuffer = generateTranscriptFile({ text, segments, format: outputFormat });
       finalFileName = `transcript-${Date.now()}.${outputFormat}`;
 
       let sentToTelegram = false;
-      if (chatId) {
+      if (chatId && process.env.TELEGRAM_BOT_TOKEN) {
+        console.log('Sending to Telegram chat:', chatId);
         const result = await sendTelegramDocument({
           chatId,
           filename: finalFileName,
           content: transcriptBuffer,
-          contentType: outputFormat === 'srt' ? 'text/plain' : 'text/plain',
+          contentType: 'text/plain',
           caption: `Transcription ${outputFormat.toUpperCase()} file`
         });
         sentToTelegram = result.ok !== false;
@@ -55,19 +70,35 @@ export async function POST(request) {
         format: outputFormat,
         sentToTelegram,
         chatId,
-        message: sentToTelegram ? 'Transcription created and sent to Telegram.' : 'Transcription created successfully.'
+        message: sentToTelegram
+          ? 'Transcription created and sent to Telegram.'
+          : 'Transcription created successfully.'
       });
     } finally {
+      // Cleanup temp files
       if (tempFilePath) {
         try {
           await fs.unlink(tempFilePath);
         } catch (error) {
-          // no-op
+          console.error('Failed to delete temp file:', error.message);
+        }
+      }
+      if (tempDirPath) {
+        try {
+          await fs.rm(tempDirPath, { recursive: true, force: true });
+        } catch (error) {
+          console.error('Failed to delete temp directory:', error.message);
         }
       }
     }
   } catch (error) {
-    console.error('transcribe route error:', error);
-    return Response.json({ error: error.message || 'Failed to transcribe file.' }, { status: 500 });
+    console.error('Transcribe route error:', error);
+    return Response.json(
+      {
+        error: error.message || 'Failed to transcribe file.',
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      },
+      { status: 500 }
+    );
   }
 }
